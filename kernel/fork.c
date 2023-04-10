@@ -381,32 +381,41 @@ struct vm_area_struct *vm_area_dup(struct vm_area_struct *orig)
 	return new;
 }
 
-static inline void ____vm_area_free(struct vm_area_struct *vma)
-{
-	if (vma->vm_file)
-		fput(vma->vm_file);
-	kmem_cache_free(vm_area_cachep, vma);
-}
-
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-static void __vm_area_free(struct rcu_head *head)
+static void __free_vm_area_struct(struct rcu_head *head)
 {
 	struct vm_area_struct *vma = container_of(head, struct vm_area_struct,
 						  vm_rcu);
-	____vm_area_free(vma);
+	kmem_cache_free(vm_area_cachep, vma);
+}
+
+static inline void free_vm_area_struct(struct vm_area_struct *vma)
+{
+	call_rcu(&vma->vm_rcu, __free_vm_area_struct);
+}
+#else
+static inline void free_vm_area_struct(struct vm_area_struct *vma)
+{
+	kmem_cache_free(vm_area_cachep, vma);
 }
 #endif
 
-void vm_area_free(struct vm_area_struct *vma)
+void vm_area_free_no_check(struct vm_area_struct *vma)
 {
 	free_anon_vma_name(vma);
+	if (vma->vm_file)
+		fput(vma->vm_file);
+	free_vm_area_struct(vma);
+}
+
+void vm_area_free(struct vm_area_struct *vma)
+{
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	if (atomic_read(&vma->vm_mm->mm_users) > 1) {
-		call_rcu(&vma->vm_rcu, __vm_area_free);
+	/* Free only after refcount dropped to negative */
+	if (atomic_dec_return(&vma->file_ref_count) >= 0)
 		return;
-	}
 #endif
-	____vm_area_free(vma);
+	vm_area_free_no_check(vma);
 }
 
 static void account_kernel_stack(struct task_struct *tsk, int account)
@@ -1007,6 +1016,11 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #ifdef CONFIG_MEMCG
 	tsk->active_memcg = NULL;
 #endif
+#ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
+	memset(&tsk->android_vendor_data1, 0, sizeof(tsk->android_vendor_data1));
+	memset(&tsk->android_oem_data1, 0, sizeof(tsk->android_oem_data1));
+#endif
+	trace_android_vh_dup_task_struct(tsk, orig);
 	return tsk;
 
 free_stack:
@@ -1172,8 +1186,10 @@ void mmput(struct mm_struct *mm)
 {
 	might_sleep();
 
-	if (atomic_dec_and_test(&mm->mm_users))
+	if (atomic_dec_and_test(&mm->mm_users)) {
+		trace_android_vh_mmput(mm);
 		__mmput(mm);
+	}
 }
 EXPORT_SYMBOL_GPL(mmput);
 

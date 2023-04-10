@@ -90,7 +90,7 @@
  *      ->lock_page		(filemap_fault, access_process_vm)
  *
  *  ->i_rwsem			(generic_perform_write)
- *    ->mmap_lock		(fault_in_pages_readable->do_page_fault)
+ *    ->mmap_lock		(fault_in_readable->do_page_fault)
  *
  *  bdi->wb.list_lock
  *    sb_lock			(fs/fs-writeback.c)
@@ -3055,11 +3055,14 @@ vm_fault_t filemap_fault(struct vm_fault *vmf)
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
 		page = find_get_page(mapping, offset);
-		if (unlikely(!page) || unlikely(PageReadahead(page)))
+		if (unlikely(!page))
 			return VM_FAULT_RETRY;
 
+		if (unlikely(PageReadahead(page)))
+			goto page_put;
+
 		if (!trylock_page(page))
-			return VM_FAULT_RETRY;
+			goto page_put;
 
 		if (unlikely(compound_head(page)->mapping != mapping))
 			goto page_unlock;
@@ -3091,6 +3094,8 @@ vm_fault_t filemap_fault(struct vm_fault *vmf)
 		return VM_FAULT_LOCKED;
 page_unlock:
 		unlock_page(page);
+page_put:
+		put_page(page);
 		return VM_FAULT_RETRY;
 	}
 
@@ -3810,7 +3815,7 @@ again:
 		 * same page as we're writing to, without it being marked
 		 * up-to-date.
 		 */
-		if (unlikely(iov_iter_fault_in_readable(i, bytes))) {
+		if (unlikely(fault_in_iov_iter_readable(i, bytes))) {
 			status = -EFAULT;
 			break;
 		}
