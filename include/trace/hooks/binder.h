@@ -10,12 +10,20 @@
  * Following tracepoints are not exported in tracefs and provide a
  * mechanism for vendor modules to hook and extend functionality
  */
-/* struct binder_proc, struct binder_thread, struct binder_transaction */
+#ifdef __GENKSYMS__
 #include <../drivers/android/binder_internal.h>
-/* struct task_struct */
 #include <linux/sched.h>
-/* struct binder_transaction_data */
 #include <uapi/linux/android/binder.h>
+#endif
+
+struct binder_proc;
+struct binder_thread;
+struct binder_transaction;
+struct binder_transaction_data;
+struct task_struct;
+struct binder_work;
+struct binder_buffer;
+
 DECLARE_HOOK(android_vh_binder_transaction_init,
 	TP_PROTO(struct binder_transaction *t),
 	TP_ARGS(t));
@@ -37,10 +45,6 @@ DECLARE_HOOK(android_vh_binder_wait_for_work,
 DECLARE_HOOK(android_vh_sync_txn_recvd,
 	TP_PROTO(struct task_struct *tsk, struct task_struct *from),
 	TP_ARGS(tsk, from));
-DECLARE_RESTRICTED_HOOK(android_rvh_binder_transaction,
-	TP_PROTO(struct binder_proc *target_proc, struct binder_proc *proc,
-		struct binder_thread *thread, struct binder_transaction_data *tr),
-	TP_ARGS(target_proc, proc, thread, tr), 1);
 DECLARE_HOOK(android_vh_binder_proc_transaction_entry,
 	TP_PROTO(struct binder_proc *proc, struct binder_transaction *t,
 	struct binder_thread **thread, int node_debug_id, bool pending_async,
@@ -102,6 +106,26 @@ DECLARE_HOOK(android_vh_binder_new_ref,
 DECLARE_HOOK(android_vh_binder_del_ref,
 	TP_PROTO(struct task_struct *proc, uint32_t ref_desc),
 	TP_ARGS(proc, ref_desc));
+DECLARE_HOOK(android_vh_alloc_oem_binder_struct,
+	TP_PROTO(struct binder_transaction_data *tr, struct binder_transaction *t,
+		struct binder_proc *proc),
+	TP_ARGS(tr, t, proc));
+DECLARE_HOOK(android_vh_binder_transaction_received,
+	TP_PROTO(struct binder_transaction *t, struct binder_proc *proc,
+		struct binder_thread *thread, uint32_t cmd),
+	TP_ARGS(t, proc, thread, cmd));
+DECLARE_HOOK(android_vh_free_oem_binder_struct,
+	TP_PROTO(struct binder_transaction *t),
+	TP_ARGS(t));
+DECLARE_HOOK(android_vh_binder_special_task,
+	TP_PROTO(struct binder_transaction *t, struct binder_proc *proc,
+		struct binder_thread *thread, struct binder_work *w,
+		struct list_head *head, bool sync, bool *special_task),
+	TP_ARGS(t, proc, thread, w, head, sync, special_task));
+DECLARE_HOOK(android_vh_binder_free_buf,
+	TP_PROTO(struct binder_proc *proc, struct binder_thread *thread,
+		struct binder_buffer *buffer),
+	TP_ARGS(proc, thread, buffer));
 
 #endif /* _TRACE_HOOK_BINDER_H */
 /* This part must be outside protection */
