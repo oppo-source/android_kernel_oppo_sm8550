@@ -44,7 +44,6 @@ void qcom_icc_pre_aggregate(struct icc_node *node)
 	for (i = 0; i < qn->num_bcms; i++)
 		qcom_icc_bcm_voter_add(qp->voters[qn->bcms[i]->voter_idx],
 				       qn->bcms[i]);
-
 }
 EXPORT_SYMBOL_GPL(qcom_icc_pre_aggregate);
 

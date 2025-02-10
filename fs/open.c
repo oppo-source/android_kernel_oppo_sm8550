@@ -768,6 +768,23 @@ SYSCALL_DEFINE3(fchown, unsigned int, fd, uid_t, user, gid_t, group)
 	return ksys_fchown(fd, user, group);
 }
 
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+extern const struct address_space_operations shmem_aops;
+static inline bool shmem_mapping(struct address_space *mapping)
+{
+	return mapping->a_ops == &shmem_aops;
+}
+
+static inline bool shmem_file_dup(struct file *file)
+{
+	if (!IS_ENABLED(CONFIG_SHMEM))
+		return false;
+	if (!file || !file->f_mapping)
+		return false;
+	return shmem_mapping(file->f_mapping);
+}
+#endif
+
 static int do_dentry_open(struct file *f,
 			  struct inode *inode,
 			  int (*open)(struct inode *, struct file *))
@@ -860,6 +877,9 @@ static int do_dentry_open(struct file *f,
 		 * of THPs into the page cache will fail.
 		 */
 		smp_mb();
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+		CHP_BUG_ON(inode->i_sb->s_magic == EROFS_SUPER_MAGIC_V1 && inode->may_cont_pte);
+#endif
 		if (filemap_nr_thps(inode->i_mapping)) {
 			struct address_space *mapping = inode->i_mapping;
 
@@ -874,6 +894,61 @@ static int do_dentry_open(struct file *f,
 			truncate_inode_pages(mapping, 0);
 			filemap_invalidate_unlock(inode->i_mapping);
 		}
+	} else {
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+		bool fs_supported = handle_chp_fs_supported(inode);
+		fs_supported = false;
+		if (!fs_supported)
+			return 0;
+
+		if (!S_ISREG(inode->i_mode))
+			return 0;
+		if (shmem_file_dup(f))
+			return 0;
+		if (inode->i_size < HPAGE_CONT_PTE_SIZE)
+			return 0;
+
+		inode_lock(inode);
+		if (!inode->may_cont_pte) {
+			int hugepage = 0;
+			const char *suffix;
+
+			/* executable files can be hugepages */
+			if (execute_ok(inode)) {
+				hugepage = NORMAL_HUGE;
+				goto done;
+			}
+
+			if (!f->f_path.dentry)
+				goto done;
+			suffix = strrchr(f->f_path.dentry->d_name.name, '.');
+			if (!suffix)
+				goto done;
+
+			if (!strcmp(suffix, ".so") || !strcmp(suffix, ".odex") ||
+			    !strcmp(suffix, ".ttf") || !strcmp(suffix, ".ttc") ||
+			    !strcmp(suffix, ".otf") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "OplusLauncher.apk") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "OplusExSystemService.apk") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "SystemUI.apk") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "framework-res.apk") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "oplus-framework-res.apk") ||
+			    !strcmp(f->f_path.dentry->d_name.name, "OplusAppPlatform.apk") ||
+			    (supported_oat_hugepage && !strcmp(f->f_path.dentry->d_name.name, "boot-framework.oat"))) {
+				hugepage = NORMAL_HUGE;
+				goto done;
+			}
+			if (!strcmp(suffix, ".jar"))
+				hugepage = JAR_HUGE;
+done:
+			if (hugepage) {
+				init_cont_endio_spinlock(inode);
+				smp_wmb();
+				inode->may_cont_pte = hugepage;
+			}
+		}
+		inode_unlock(inode);
+#endif
 	}
 
 	return 0;
@@ -979,7 +1054,7 @@ struct file *dentry_open(const struct path *path, int flags,
 	}
 	return f;
 }
-EXPORT_SYMBOL(dentry_open);
+EXPORT_SYMBOL_NS(dentry_open, ANDROID_GKI_VFS_EXPORT_ONLY);
 
 struct file *open_with_fake_path(const struct path *path, int flags,
 				struct inode *inode, const struct cred *cred)
@@ -1128,7 +1203,7 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 		lookup_flags |= LOOKUP_IN_ROOT;
 	if (how->resolve & RESOLVE_CACHED) {
 		/* Don't bother even trying for create/truncate/tmpfile open */
-		if (flags & (O_TRUNC | O_CREAT | O_TMPFILE))
+		if (flags & (O_TRUNC | O_CREAT | __O_TMPFILE))
 			return -EAGAIN;
 		lookup_flags |= LOOKUP_CACHED;
 	}
@@ -1173,7 +1248,7 @@ struct file *filp_open(const char *filename, int flags, umode_t mode)
 {
 	struct filename *name = getname_kernel(filename);
 	struct file *file = ERR_CAST(name);
-	
+
 	if (!IS_ERR(name)) {
 		file = file_open_name(name, flags, mode);
 		putname(name);
