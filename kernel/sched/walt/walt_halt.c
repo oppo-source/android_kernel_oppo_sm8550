@@ -9,7 +9,17 @@
 #include <trace/hooks/sched.h>
 #include <walt.h>
 #include "trace.h"
-
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_TASK_SCHED)
+#include <../kernel/oplus_cpu/sched/task_sched/task_sched_info.h>
+#endif
+#ifdef CONFIG_OPLUS_ADD_CORE_CTRL_MASK
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
+#include <../kernel/oplus_cpu/sched/frame_boost/frame_group.h>
+#endif
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+#include <../kernel/oplus_cpu/sched/sched_assist/sa_fair.h>
+#endif
+#endif /* CONFIG_OPLUS_ADD_CORE_CTRL_MASK */
 #ifdef CONFIG_HOTPLUG_CPU
 
 /* if a cpu is halting */
@@ -311,6 +321,9 @@ static int halt_cpus(struct cpumask *cpus)
 	wake_up_process(walt_drain_thread);
 
 out:
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_TASK_SCHED)
+	update_cpus_isolate_info(cpus, cpu_isolate);
+#endif
 	trace_halt_cpus(cpus, start_time, 1, ret);
 
 	return ret;
@@ -343,6 +356,9 @@ static int start_cpus(struct cpumask *cpus)
 		walt_smp_call_newidle_balance(cpu);
 	}
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_TASK_SCHED)
+        update_cpus_isolate_info(cpus, cpu_unisolate);
+#endif
 	trace_halt_cpus(cpus, start_time, 0, 0);
 
 	return 0;
@@ -514,10 +530,10 @@ unlock:
  *        must not change cpu in in_exec 32bit task case
  */
 static void android_rvh_set_cpus_allowed_by_task(void *unused,
-						 const struct cpumask *cpu_valid_mask,
-						 const struct cpumask *new_mask,
-						 struct task_struct *p,
-						 unsigned int *dest_cpu)
+						    const struct cpumask *cpu_valid_mask,
+						    const struct cpumask *new_mask,
+						    struct task_struct *p,
+						    unsigned int *dest_cpu)
 {
 	if (unlikely(walt_disabled))
 		return;
@@ -592,6 +608,16 @@ void walt_halt_init(void)
 	}
 
 	sched_setscheduler_nocheck(walt_drain_thread, SCHED_FIFO, &param);
+
+#ifdef CONFIG_OPLUS_ADD_CORE_CTRL_MASK
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_FRAME_BOOST)
+	init_fbg_halt_mask(&__cpu_halt_mask);
+#endif
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+	init_ux_halt_mask(&__cpu_halt_mask);
+#endif
+#endif /* CONFIG_OPLUS_ADD_CORE_CTRL_MASK */
 
 	/*
 	 * disable hotplug of first cpu for a symmetric system (all or none of the cores

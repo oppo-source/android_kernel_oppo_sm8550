@@ -1846,9 +1846,10 @@ static void nvme_update_disk_info(struct gendisk *disk,
 
 	/*
 	 * The block layer can't support LBA sizes larger than the page size
-	 * yet, so catch this early and don't allow block I/O.
+	 * or smaller than a sector size yet, so catch this early and don't
+	 * allow block I/O.
 	 */
-	if (ns->lba_shift > PAGE_SHIFT) {
+	if (ns->lba_shift > PAGE_SHIFT || ns->lba_shift < SECTOR_SHIFT) {
 		capacity = 0;
 		bs = (1 << 9);
 	}
@@ -2153,6 +2154,14 @@ static int nvme_report_zones(struct gendisk *disk, sector_t sector,
 #else
 #define nvme_report_zones	NULL
 #endif /* CONFIG_BLK_DEV_ZONED */
+
+// Temp add to avoid "ERROR: modpost: "blkdev_compat_ptr_ioctl" \
+// [drivers/nvme/host/nvme-core.ko] undefined!"
+int blkdev_compat_ptr_ioctl(struct block_device *bdev, fmode_t mode,
+			unsigned cmd, unsigned long arg)
+{
+	return 0;
+}
 
 static const struct block_device_operations nvme_bdev_ops = {
 	.owner		= THIS_MODULE,

@@ -2304,6 +2304,9 @@ static int prctl_set_vma(unsigned long opt, unsigned long addr,
 	const char __user *uname;
 	struct anon_vma_name *anon_name = NULL;
 	int error;
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+	enum chp_vma_type chp = CHP_VMA_NONE;
+#endif
 
 	switch (opt) {
 	case PR_SET_VMA_ANON_NAME:
@@ -2321,6 +2324,12 @@ static int prctl_set_vma(unsigned long opt, unsigned long addr,
 					return -EINVAL;
 				}
 			}
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+			chp = chp_handle_prctl_set_anon_name(uname, name,
+							     size);
+			if (chp != CHP_VMA_NONE)
+				name[0] = CHP_VMA_SPECIAL_CHAR;
+#endif
 			/* anon_vma has its own copy */
 			anon_name = anon_vma_name_alloc(name);
 			kfree(name);
@@ -2330,7 +2339,11 @@ static int prctl_set_vma(unsigned long opt, unsigned long addr,
 		}
 
 		mmap_write_lock(mm);
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+		error = madvise_set_anon_name(mm, addr, size, anon_name, chp);
+#else
 		error = madvise_set_anon_name(mm, addr, size, anon_name);
+#endif
 		mmap_write_unlock(mm);
 		anon_vma_name_put(anon_name);
 		break;

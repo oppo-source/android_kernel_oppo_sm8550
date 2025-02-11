@@ -26,6 +26,8 @@
 #include <linux/android_kabi.h>
 #include <net/regulatory.h>
 
+#define CFG80211_EXTERNAL_AUTH_TA_SUPPORT 1
+
 /**
  * DOC: Introduction
  *
@@ -582,6 +584,9 @@ ieee80211_get_sband_iftype_data(const struct ieee80211_supported_band *sband,
 
 	if (WARN_ON(iftype >= NL80211_IFTYPE_MAX))
 		return NULL;
+
+	if (iftype == NL80211_IFTYPE_AP_VLAN)
+		iftype = NL80211_IFTYPE_AP;
 
 	for (i = 0; i < sband->n_iftype_data; i++)  {
 		const struct ieee80211_sband_iftype_data *data =
@@ -3835,6 +3840,11 @@ struct cfg80211_pmk_conf {
  *	the real status code for failures. Used only for the authentication
  *	response command interface (user space to driver).
  * @pmkid: The identifier to refer a PMKSA.
+ * @tx_addr: Transmit address to use for current external authentication
+ *	request. Only valid for the authentication request event. Driver must
+ *	indicate support for randomizing transmit address of authentication
+ *	frames with %NL80211_EXT_FEATURE_AUTH_TX_RANDOM_TA to fill non-zero
+ *	value in this parameter.
  * @mld_addr: MLD address of the peer. Used by the authentication request event
  *	interface. Driver indicates this to enable MLO during the authentication
  *	offload to user space. Driver shall look at %NL80211_ATTR_MLO_SUPPORT
@@ -3854,6 +3864,7 @@ struct cfg80211_external_auth_params {
 	unsigned int key_mgmt_suite;
 	u16 status;
 	const u8 *pmkid;
+	u8 tx_addr[ETH_ALEN] __aligned(2);
 	u8 mld_addr[ETH_ALEN] __aligned(2);
 
 	ANDROID_BACKPORT_RESERVED(1);

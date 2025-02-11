@@ -1574,4 +1574,7 @@ config REGULATOR_MEM_ACC
           controls delays applied for memory accesses.  This driver
           configures the power-mode(corner) for the memory accelerator.
 
+#ifdef OPLUS_FEATURE_PMIC
+source "drivers/regulator/camera_aw37004/Kconfig"
+#endif /* OPLUS_FEATURE_PMIC */
 endif

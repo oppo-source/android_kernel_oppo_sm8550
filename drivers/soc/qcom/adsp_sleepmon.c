@@ -42,6 +42,9 @@
 #include <../../remoteproc/qcom_common.h>
 #endif
 #include <uapi/misc/adsp_sleepmon.h>
+#include <linux/timekeeping.h>
+#include <linux/qcom-dload-mode.h>
+#include <linux/qcom_scm.h>
 
 #define ADSPSLEEPMON_SMEM_ADSP_PID                              2
 #define ADSPSLEEPMON_SLEEPSTATS_ADSP_SMEM_ID                    606
@@ -313,6 +316,32 @@ struct adspsleepmon {
 #endif
 };
 
+//If trigger the adsp reboot, we should wait for 24 hours
+#define  TRIGGER_SSR_LIMIT_TIME     86400
+//should keep on 15 minutes, then trigger sleep issue
+#define  TRIGGER_SSR_KEEP_TIME      900
+
+static long  long last_trigger_time = 0;
+static long  long first_check_time = 0;
+static long  retry_times = 0;
+
+struct timeval {
+	long long tv_sec;
+	long tv_usec;
+};
+
+static void do_gettimeofday(struct timeval *tv)
+{
+	struct timespec64 now;
+
+	ktime_get_real_ts64(&now);
+	tv->tv_sec = now.tv_sec;
+	tv->tv_usec = now.tv_nsec/1000;
+}
+
+/* Add for adsp ssr */
+//extern bool oplus_daemon_adsp_ssr(void);
+
 static struct adspsleepmon g_adspsleepmon;
 static void adspsleepmon_timer_cb(struct timer_list *unused);
 static DEFINE_TIMER(adspsleep_timer, adspsleepmon_timer_cb);
@@ -381,6 +410,44 @@ static int sleepmon_send_ssr_command(void)
 
 	return result;
 }
+
+//function triggering adsp reset
+static void oplus_lpm_adsp_panic()
+{
+	struct timeval tv;
+	long long current_time = 0, period_time = 0;
+	long long delta_time = 0;
+	int dump_mode = 0;
+
+	//If adsp not slepp, every 4h to trigger adsp restart
+	do_gettimeofday(&tv);
+	current_time = tv.tv_sec;
+
+	period_time = current_time - last_trigger_time;
+	dump_mode = get_dump_mode();
+
+	if (dump_mode != QCOM_DOWNLOAD_FULLDUMP) {
+
+		if(!retry_times){
+			first_check_time = current_time;
+			delta_time = 0;
+		} else {
+			delta_time = current_time - first_check_time;
+		}
+
+		retry_times ++;
+
+		if ((retry_times > 20) && (delta_time > TRIGGER_SSR_KEEP_TIME) && (period_time > TRIGGER_SSR_LIMIT_TIME)) {
+			pr_err("Sending panic command to ADSP for LPM violation\n");
+			sleepmon_send_ssr_command();
+			//oplus_daemon_adsp_ssr();
+			last_trigger_time = current_time;
+			retry_times = 0;
+			delta_time = 0;
+		}
+	}
+}
+
 
 static int sleepmon_send_lpi_issue_command(void)
 {
@@ -685,8 +752,11 @@ static int debugfs_adsp_panic_state_write(void *data, u64 val)
 
 	if (!(val & 0x1))
 		g_adspsleepmon.b_config_adsp_panic_lpm = false;
-	else
+	else {
+		pr_err("try lpm reset \n");
+		oplus_lpm_adsp_panic();
 		g_adspsleepmon.b_config_adsp_panic_lpm = true;
+	}
 	if (!(val & 0x2))
 		g_adspsleepmon.b_config_adsp_panic_lpi = false;
 	else
@@ -1080,11 +1150,19 @@ static void sleepmon_lpm_exception_check(u64 curr_timestamp, u64 elapsed_time)
 					g_adspsleepmon.accumulated_resumes = 0;
 				}
 			}
+			if (is_audio_active)
+				oplus_lpm_adsp_panic();
+
 		} else {
+			retry_times = 0;
+			pr_err("no adsp sleep issue\n");
 			g_adspsleepmon.accumulated_duration = 0;
 			g_adspsleepmon.accumulated_resumes = 0;
 		}
 
+	} else {
+		retry_times = 0;
+		pr_err("adsp sleep well\n");
 	}
 
 	memcpy(&g_adspsleepmon.backup_lpm_stats,

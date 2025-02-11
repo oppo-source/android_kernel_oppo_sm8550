@@ -540,7 +540,7 @@ static void throtl_pd_init(struct blkg_policy_data *pd)
 {
 	struct throtl_grp *tg = pd_to_tg(pd);
 	struct blkcg_gq *blkg = tg_to_blkg(tg);
-	struct throtl_data *td = blkg->q->td;
+	struct throtl_data *td = (struct throtl_data *)(blkg->q->android_oem_data1);
 	struct throtl_service_queue *sq = &tg->service_queue;
 
 	/*
@@ -1415,6 +1415,7 @@ static void tg_conf_updated(struct throtl_grp *tg, bool global)
 		   tg_bps_limit(tg, READ), tg_bps_limit(tg, WRITE),
 		   tg_iops_limit(tg, READ), tg_iops_limit(tg, WRITE));
 
+	rcu_read_lock();
 	/*
 	 * Update has_rules[] flags for the updated tg's subtree.  A tg is
 	 * considered to have rules if either the tg itself or any of its
@@ -1442,6 +1443,7 @@ static void tg_conf_updated(struct throtl_grp *tg, bool global)
 		this_tg->latency_target = max(this_tg->latency_target,
 				parent_tg->latency_target);
 	}
+	rcu_read_unlock();
 
 	/*
 	 * We're already holding queue_lock and know @tg is valid.  Let's
@@ -1787,7 +1789,7 @@ static struct cftype throtl_files[] = {
 
 static void throtl_shutdown_wq(struct request_queue *q)
 {
-	struct throtl_data *td = q->td;
+	struct throtl_data *td = (struct throtl_data *)(q->android_oem_data1);
 
 	cancel_work_sync(&td->dispatch_work);
 }
@@ -2435,7 +2437,7 @@ int blk_throtl_init(struct request_queue *q)
 	INIT_WORK(&td->dispatch_work, blk_throtl_dispatch_work_fn);
 	throtl_service_queue_init(&td->service_queue);
 
-	q->td = td;
+	q->android_oem_data1 = (u64)td;
 	td->queue = q;
 
 	td->limit_valid[LIMIT_MAX] = true;
@@ -2455,13 +2457,14 @@ int blk_throtl_init(struct request_queue *q)
 
 void blk_throtl_exit(struct request_queue *q)
 {
-	BUG_ON(!q->td);
-	del_timer_sync(&q->td->service_queue.pending_timer);
+	struct throtl_data *td = (struct throtl_data *)(q->android_oem_data1);
+	BUG_ON(!td);
+	del_timer_sync(&td->service_queue.pending_timer);
 	throtl_shutdown_wq(q);
 	blkcg_deactivate_policy(q, &blkcg_policy_throtl);
-	free_percpu(q->td->latency_buckets[READ]);
-	free_percpu(q->td->latency_buckets[WRITE]);
-	kfree(q->td);
+	free_percpu(td->latency_buckets[READ]);
+	free_percpu(td->latency_buckets[WRITE]);
+	kfree(td);
 }
 
 void blk_throtl_register_queue(struct request_queue *q)
@@ -2469,7 +2472,7 @@ void blk_throtl_register_queue(struct request_queue *q)
 	struct throtl_data *td;
 	int i;
 
-	td = q->td;
+	td = (struct throtl_data *)(q->android_oem_data1);
 	BUG_ON(!td);
 
 	if (blk_queue_nonrot(q)) {

@@ -394,7 +394,6 @@
   devm_iio_channel_get
   devm_iio_channel_get_all
   devm_iio_device_alloc
-  devm_iio_triggered_buffer_setup_ext
   __devm_iio_device_register
   devm_iio_triggered_buffer_setup_ext
   devm_input_allocate_device
@@ -794,6 +793,7 @@
   fwnode_property_read_string
   fwnode_property_read_u32_array
   fwnode_property_read_u64_array
+  fwnode_typec_mux_get
   g_audio_cleanup
   g_audio_setup
   gcd
@@ -1147,6 +1147,7 @@
   match_hex
   match_int
   match_token
+  match_uint
   mbox_chan_received_data
   mbox_client_txdone
   mbox_controller_register
@@ -1401,6 +1402,7 @@
   oops_in_progress
   page_endio
   page_mapping
+  page_symlink_inode_operations
   panic
   panic_notifier_list
   param_array_ops
@@ -2191,10 +2193,13 @@
   tty_unregister_ldisc
   tty_write_room
   typec_mux_get_drvdata
+  typec_mux_put
   typec_mux_register
   typec_mux_set
   typec_mux_unregister
   typec_partner_set_identity
+  typec_partner_set_pd_revision
+  typec_partner_set_svdm_version
   typec_register_partner
   typec_register_port
   typec_set_data_role

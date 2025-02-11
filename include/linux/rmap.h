@@ -57,7 +57,6 @@ struct anon_vma {
 
 	/* Interval tree of private "related" vmas */
 	struct rb_root_cached rb_root;
-
 	/*
 	 * ANDROID: KABI preservation, it's safe to put these at the end of this structure as it's
 	 * only passed by a pointer everywhere, the size and internal structures are local to the
