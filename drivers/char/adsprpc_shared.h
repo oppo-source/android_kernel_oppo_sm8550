@@ -213,6 +213,15 @@ struct remote_buf {
 	size_t len;		/* length of buffer */
 };
 
+/* structure to hold fd and size of buffer shared with DSP,
+ * which contains initial debug parameters that needs to be passed
+ * during process initialization.
+ */
+struct fastrpc_proc_sharedbuf_info {
+	int buf_fd;
+	int buf_size;
+};
+
 struct remote_dma_handle {
 	int fd;
 	uint32_t offset;
@@ -305,11 +314,22 @@ enum fastrpc_init_flags {
 	FASTRPC_INIT_ATTACH_SENSORS  = 3,
 };
 
+/* FastRPC ioctl structure to set session related info */
+struct fastrpc_proc_sess_info {
+	uint32_t domain_id;  /* Set the remote subsystem, Domain ID of the session  */
+	uint32_t session_id; /* Unused, Set the Session ID on remote subsystem */
+	uint32_t pd_type;    /* Set the process type on remote subsystem */
+	uint32_t sharedcb;   /* Unused, Session can share context bank with other sessions */
+};
+
 enum fastrpc_invoke2_type {
 	FASTRPC_INVOKE2_ASYNC		   = 1,
 	FASTRPC_INVOKE2_ASYNC_RESPONSE = 2,
 	FASTRPC_INVOKE2_KERNEL_OPTIMIZATIONS,
 	FASTRPC_INVOKE2_STATUS_NOTIF,
+	FASTRPC_INVOKE2_PROC_SHAREDBUF_INFO,
+	/* Set session info of remote sub system */
+	FASTRPC_INVOKE2_SESS_INFO,
 };
 
 struct fastrpc_ioctl_invoke2 {
@@ -686,9 +706,14 @@ enum fastrpc_buf_type {
 
 /* Types of RPC calls to DSP */
 enum fastrpc_msg_type {
+	/* 64 bit user application invoke message */
 	USER_MSG = 0,
+	/* kernel invoke message with zero pid */
 	KERNEL_MSG_WITH_ZERO_PID,
+	/* kernel invoke message with non zero pid to kill the PD in DSP */
 	KERNEL_MSG_WITH_NONZERO_PID,
+	/* 32 bit user application invoke message */
+	COMPAT_MSG,
 };
 
 #define DSPSIGNAL_TIMEOUT_NONE 0xffffffff
@@ -709,6 +734,21 @@ struct gid_list {
 	unsigned int *gids;
 	unsigned int gidcount;
 };
+
+/*
+ * Process types on remote subsystem
+ * Always add new PD types at the end, before MAX_PD_TYPE
+ */
+#define DEFAULT_UNUSED    0  /* pd type not configured for context banks */
+#define ROOT_PD           1  /* Root PD */
+#define AUDIO_STATICPD    2  /* ADSP Audio Static PD */
+#define SENSORS_STATICPD  3  /* ADSP Sensors Static PD */
+#define SECURE_STATICPD   4  /* CDSP Secure Static PD */
+#define OIS_STATICPD      5  /* ADSP OIS Static PD */
+#define CPZ_USERPD        6  /* CDSP CPZ USER PD */
+#define USERPD            7  /* DSP User Dynamic PD */
+#define GUEST_OS_SHARED   8  /* Legacy Guest OS Shared */
+#define MAX_PD_TYPE       9  /* Max PD type */
 
 struct fastrpc_file;
 
@@ -850,6 +890,8 @@ struct fastrpc_smmu {
 	int secure;
 	int coherent;
 	int sharedcb;
+	/* Process type on remote sub system */
+	int pd_type;
 	/* gen pool for QRTR */
 	struct gen_pool *frpc_genpool;
 	/* fastrpc gen pool buffer */
@@ -956,6 +998,8 @@ struct fastrpc_apps {
 	unsigned int lowest_capacity_core_count;
 	/* Flag to check if PM QoS vote needs to be done for only one core */
 	bool single_core_latency_vote;
+	/* Indicates process type is configured for SMMU context bank */
+	bool cb_pd_type;
 };
 
 struct fastrpc_mmap {
@@ -982,7 +1026,8 @@ struct fastrpc_mmap {
 	struct timespec64 map_start_time;
 	struct timespec64 map_end_time;
 	/* Mapping for fastrpc shell */
-	bool is_filemap;			/*flag to indicate map used in process init*/
+	bool is_filemap;			/* flag to indicate map used in process init */
+	bool is_dumped;				/* flag to indicate map is dumped during SSR */
 	char *servloc_name;			/* Indicate which daemon mapped this */
 	unsigned int ctx_refs; /* Indicates reference count for context map */
 	/* Map in use for dma handle */
@@ -1067,6 +1112,8 @@ struct fastrpc_file {
 	int file_close;
 	int dsp_proc_init;
 	int sharedcb;
+	/* Process type on remote sub system */
+	int pd_type;
 	struct fastrpc_apps *apps;
 	struct dentry *debugfs_file;
 	struct dev_pm_qos_request *dev_pm_qos_req;
@@ -1109,8 +1156,6 @@ struct fastrpc_file {
 	/* Flag to indicate dynamic process creation status*/
 	enum fastrpc_process_create_state dsp_process_state;
 	bool is_unsigned_pd;
-	/* Flag to indicate 32 bit driver*/
-	bool is_compat;
 	/* Completion objects and state for dspsignals */
 	struct fastrpc_dspsignal *signal_groups[DSPSIGNAL_NUM_SIGNALS / DSPSIGNAL_GROUP_SIZE];
 	spinlock_t dspsignals_lock;
@@ -1122,6 +1167,12 @@ struct fastrpc_file {
 	bool exit_notif;
 	/* Flag to indicate async thread exit requested*/
 	bool exit_async;
+	/*
+	 * structure to hold fd and size of buffer shared with DSP,
+	 * which contains initial debug configurations and other initial
+	 * config parameters.
+	 */
+	struct fastrpc_proc_sharedbuf_info sharedbuf_info;
 };
 
 union fastrpc_ioctl_param {
@@ -1149,7 +1200,7 @@ int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 				   struct fastrpc_ioctl_invoke_async *inv);
 
 int fastrpc_internal_invoke2(struct fastrpc_file *fl,
-				struct fastrpc_ioctl_invoke2 *inv2);
+				struct fastrpc_ioctl_invoke2 *inv2, bool is_compat);
 
 int fastrpc_internal_munmap(struct fastrpc_file *fl,
 				   struct fastrpc_ioctl_munmap *ud);

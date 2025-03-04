@@ -2304,8 +2304,13 @@ static int mmc_blk_rw_wait(struct mmc_queue *mq, struct request **prev_req)
 {
 	int err = 0;
 
+#ifndef CONFIG_MMC
 	wait_event(mq->wait, mmc_blk_rw_wait_cond(mq, &err));
-
+#else
+	if (!wait_event_timeout(mq->wait, mmc_blk_rw_wait_cond(mq, &err), msecs_to_jiffies(10000))) { /* wait 10s */
+		pr_err("%s wait_event_timeout expired!\n", __FUNCTION__);
+	}
+#endif
 	/* Always complete the previous request if there is one */
 	mmc_blk_mq_complete_prev_req(mq, prev_req);
 

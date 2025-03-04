@@ -1112,35 +1112,33 @@ static void uaudio_disconnect(void *unused, struct usb_interface *intf)
 		goto done;
 	}
 
-	if (atomic_read(&dev->in_use)) {
-		uaudio_dbg("sending qmi indication disconnect\n");
-		uaudio_dbg("sq->sq_family:%x sq->sq_node:%x sq->sq_port:%x\n",
-				svc->client_sq.sq_family,
-				svc->client_sq.sq_node, svc->client_sq.sq_port);
-		disconnect_ind.dev_event = USB_AUDIO_DEV_DISCONNECT_V01;
-		disconnect_ind.slot_id = dev->udev->slot_id;
-		disconnect_ind.controller_num = dev->usb_core_id;
-		disconnect_ind.controller_num_valid = 1;
-		ret = qmi_send_indication(svc->uaudio_svc_hdl, &svc->client_sq,
-				QMI_UAUDIO_STREAM_IND_V01,
-				QMI_UAUDIO_STREAM_IND_MSG_V01_MAX_MSG_LEN,
-				qmi_uaudio_stream_ind_msg_v01_ei,
-				&disconnect_ind);
-		if (ret < 0)
-			uaudio_err("qmi send failed with err: %d\n", ret);
+	uaudio_dbg("sending qmi indication disconnect\n");
+	uaudio_dbg("sq->sq_family:%x sq->sq_node:%x sq->sq_port:%x\n",
+			svc->client_sq.sq_family,
+			svc->client_sq.sq_node, svc->client_sq.sq_port);
+	disconnect_ind.dev_event = USB_AUDIO_DEV_DISCONNECT_V01;
+	disconnect_ind.slot_id = dev->udev->slot_id;
+	disconnect_ind.controller_num = dev->usb_core_id;
+	disconnect_ind.controller_num_valid = 1;
+	ret = qmi_send_indication(svc->uaudio_svc_hdl, &svc->client_sq,
+			QMI_UAUDIO_STREAM_IND_V01,
+			QMI_UAUDIO_STREAM_IND_MSG_V01_MAX_MSG_LEN,
+			qmi_uaudio_stream_ind_msg_v01_ei,
+			&disconnect_ind);
+	if (ret < 0)
+		uaudio_err("qmi send failed with err: %d\n", ret);
 
-		ret = wait_event_interruptible_timeout(dev->disconnect_wq,
-				!atomic_read(&dev->in_use),
-				msecs_to_jiffies(DEV_RELEASE_WAIT_TIMEOUT));
-		if (!ret) {
-			uaudio_err("timeout while waiting for dev_release\n");
-			atomic_set(&dev->in_use, 0);
-		} else if (ret < 0) {
-			uaudio_err("failed with ret %d\n", ret);
-			atomic_set(&dev->in_use, 0);
-		}
-
+	ret = wait_event_interruptible_timeout(dev->disconnect_wq,
+			!atomic_read(&dev->in_use),
+			msecs_to_jiffies(DEV_RELEASE_WAIT_TIMEOUT));
+	if (!ret) {
+		uaudio_err("timeout while waiting for dev_release\n");
+		atomic_set(&dev->in_use, 0);
+	} else if (ret < 0) {
+		uaudio_err("failed with ret %d\n", ret);
+		atomic_set(&dev->in_use, 0);
 	}
+
 
 	uaudio_dev_cleanup(dev);
 done:
