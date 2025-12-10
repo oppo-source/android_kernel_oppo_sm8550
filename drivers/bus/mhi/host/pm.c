@@ -495,7 +495,7 @@ static void mhi_pm_disable_transition(struct mhi_controller *mhi_cntrl)
 
 skip_mhi_reset:
 	MHI_VERB(dev,
-		 "Waiting for all pending event ring processing to complete\n");
+            "Waiting for all pending event ring processing to complete\n");
 	mhi_event = mhi_cntrl->mhi_event;
 	for (i = 0; i < mhi_cntrl->total_ev_rings; i++, mhi_event++) {
 		if (mhi_event->offload_ev)

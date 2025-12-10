@@ -225,7 +225,11 @@ int uaudio_qmi_ctrl_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 		    __u8 requesttype, __u16 value, __u16 index, void *data,
 		    __u16 size)
 {
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	int err = 0;
+#else
 	int err;
+#endif
 	void *buf = NULL;
 	int timeout;
 
@@ -243,6 +247,19 @@ int uaudio_qmi_ctrl_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 	else
 		timeout = USB_CTRL_SET_TIMEOUT;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (size > 0) {
+		err = usb_control_msg(dev, pipe, request, requesttype,
+		      value, index, buf, size, timeout);
+		if (err < 0) {
+			dev_err(&dev->dev, "usb_control_msg returned %d\n", err);
+			kfree(buf);
+			return err;
+		}
+		memcpy(data, buf, size);
+		kfree(buf);
+	}
+#else
 	err = usb_control_msg(dev, pipe, request, requesttype,
 			      value, index, buf, size, timeout);
 
@@ -250,6 +267,7 @@ int uaudio_qmi_ctrl_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 		memcpy(data, buf, size);
 		kfree(buf);
 	}
+#endif
 
 	uaudio_qmi_ctrl_msg_quirk(dev, pipe, request, requesttype,
 			      value, index, data, size);
@@ -1094,35 +1112,33 @@ static void uaudio_disconnect(void *unused, struct usb_interface *intf)
 		goto done;
 	}
 
-	if (atomic_read(&dev->in_use)) {
-		uaudio_dbg("sending qmi indication disconnect\n");
-		uaudio_dbg("sq->sq_family:%x sq->sq_node:%x sq->sq_port:%x\n",
-				svc->client_sq.sq_family,
-				svc->client_sq.sq_node, svc->client_sq.sq_port);
-		disconnect_ind.dev_event = USB_AUDIO_DEV_DISCONNECT_V01;
-		disconnect_ind.slot_id = dev->udev->slot_id;
-		disconnect_ind.controller_num = dev->usb_core_id;
-		disconnect_ind.controller_num_valid = 1;
-		ret = qmi_send_indication(svc->uaudio_svc_hdl, &svc->client_sq,
-				QMI_UAUDIO_STREAM_IND_V01,
-				QMI_UAUDIO_STREAM_IND_MSG_V01_MAX_MSG_LEN,
-				qmi_uaudio_stream_ind_msg_v01_ei,
-				&disconnect_ind);
-		if (ret < 0)
-			uaudio_err("qmi send failed with err: %d\n", ret);
+	uaudio_dbg("sending qmi indication disconnect\n");
+	uaudio_dbg("sq->sq_family:%x sq->sq_node:%x sq->sq_port:%x\n",
+			svc->client_sq.sq_family,
+			svc->client_sq.sq_node, svc->client_sq.sq_port);
+	disconnect_ind.dev_event = USB_AUDIO_DEV_DISCONNECT_V01;
+	disconnect_ind.slot_id = dev->udev->slot_id;
+	disconnect_ind.controller_num = dev->usb_core_id;
+	disconnect_ind.controller_num_valid = 1;
+	ret = qmi_send_indication(svc->uaudio_svc_hdl, &svc->client_sq,
+			QMI_UAUDIO_STREAM_IND_V01,
+			QMI_UAUDIO_STREAM_IND_MSG_V01_MAX_MSG_LEN,
+			qmi_uaudio_stream_ind_msg_v01_ei,
+			&disconnect_ind);
+	if (ret < 0)
+		uaudio_err("qmi send failed with err: %d\n", ret);
 
-		ret = wait_event_interruptible_timeout(dev->disconnect_wq,
-				!atomic_read(&dev->in_use),
-				msecs_to_jiffies(DEV_RELEASE_WAIT_TIMEOUT));
-		if (!ret) {
-			uaudio_err("timeout while waiting for dev_release\n");
-			atomic_set(&dev->in_use, 0);
-		} else if (ret < 0) {
-			uaudio_err("failed with ret %d\n", ret);
-			atomic_set(&dev->in_use, 0);
-		}
-
+	ret = wait_event_interruptible_timeout(dev->disconnect_wq,
+			!atomic_read(&dev->in_use),
+			msecs_to_jiffies(DEV_RELEASE_WAIT_TIMEOUT));
+	if (!ret) {
+		uaudio_err("timeout while waiting for dev_release\n");
+		atomic_set(&dev->in_use, 0);
+	} else if (ret < 0) {
+		uaudio_err("failed with ret %d\n", ret);
+		atomic_set(&dev->in_use, 0);
 	}
+
 
 	uaudio_dev_cleanup(dev);
 done:
@@ -1677,7 +1693,8 @@ static void handle_uaudio_stream_req(struct qmi_handle *handle,
 		disable_audio_stream(subs);
 	}
 
-	atomic_dec(&chip->usage_count);
+	if (atomic_dec_and_test(&chip->usage_count) && atomic_read(&chip->shutdown))
+		wake_up(&chip->shutdown_wait); /* add this to handle the disconnect during enable_audio_stream not completed and prepare_qmi_response not executed. */
 
 response:
 	if (!req_msg->enable && ret != -EINVAL && ret != -ENODEV) {

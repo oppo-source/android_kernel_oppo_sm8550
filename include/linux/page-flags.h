@@ -141,8 +141,15 @@ enum pageflags {
 #ifdef CONFIG_KASAN_HW_TAGS
 	PG_skip_kasan_poison,
 #endif
-#ifdef CONFIG_64BIT
+#if defined(CONFIG_64BIT) && !defined(CONFIG_NUMA_BALANCING)
 	PG_oem_reserved,
+	PG_oem_reserved_1,
+	PG_oem_reserved_2,
+	PG_oem_reserved_3,
+	PG_oem_reserved_4,
+#endif
+#ifdef CONFIG_BLOCKIO_UX_OPT
+	PG_protect,
 #endif
 	__NR_PAGEFLAGS,
 
@@ -342,6 +349,9 @@ static inline int TestClearPage##uname(struct page *page) { return 0; }
 #define TESTSCFLAG_FALSE(uname)						\
 	TESTSETFLAG_FALSE(uname) TESTCLEARFLAG_FALSE(uname)
 
+#ifdef CONFIG_BLOCKIO_UX_OPT
+__PAGEFLAG(Protect, protect, PF_NO_TAIL)
+#endif
 __PAGEFLAG(Locked, locked, PF_NO_TAIL)
 PAGEFLAG(Waiters, waiters, PF_ONLY_HEAD) __CLEARPAGEFLAG(Waiters, waiters, PF_ONLY_HEAD)
 PAGEFLAG(Error, error, PF_NO_TAIL) TESTCLEARFLAG(Error, error, PF_NO_TAIL)
@@ -832,6 +842,17 @@ static inline void ClearPageSlabPfmemalloc(struct page *page)
 	VM_BUG_ON_PAGE(!PageSlab(page), page);
 	ClearPageActive(page);
 }
+
+#ifdef CONFIG_BLOCKIO_UX_OPT
+extern const char *fileprotect_switch;
+
+static inline bool fileprotect_enable(void)
+{
+	if (fileprotect_switch)
+		return true;
+	return false;
+}
+#endif
 
 #ifdef CONFIG_MMU
 #define __PG_MLOCKED		(1UL << PG_mlocked)

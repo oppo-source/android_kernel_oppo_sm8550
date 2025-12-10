@@ -610,8 +610,15 @@ retry:
 		mark_page_accessed(page);
 	}
 	if ((flags & FOLL_MLOCK) && (vma->vm_flags & VM_LOCKED)) {
+#ifndef CONFIG_CONT_PTE_HUGEPAGE
 		/* Do not mlock pte-mapped THP */
 		if (PageTransCompound(page))
+#else
+		if (PageTransCompound(page) &&
+		    (!ContPteHugePageHead(page) ||
+		     PageDoubleMap(compound_head(page)) ||
+		     PageAnon(page)))
+#endif
 			goto out;
 
 		/*
@@ -1868,7 +1875,11 @@ static long check_and_migrate_movable_pages(unsigned long nr_pages,
 
 	for (i = 0; i < nr_pages; i++) {
 		head = compound_head(pages[i]);
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+		if (head == prev_head || ContPteHugePage(head))
+#else
 		if (head == prev_head)
+#endif
 			continue;
 		prev_head = head;
 		/*

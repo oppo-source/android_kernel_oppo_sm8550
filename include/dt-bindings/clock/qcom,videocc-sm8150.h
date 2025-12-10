@@ -16,7 +16,7 @@
 #define VIDEO_CC_MVSC_CORE_CLK				5
 #define VIDEO_CC_XO_CLK					6
 
-/* VIDEO_CC resets */
+/* VIDEO_CC Resets */
 #define VIDEO_CC_INTERFACE_BCR				0
 #define VIDEO_CC_MVS0_BCR				1
 #define VIDEO_CC_MVS1_BCR				2

@@ -262,6 +262,12 @@ struct signal_struct {
 #define SIGNAL_STOP_MASK (SIGNAL_CLD_MASK | SIGNAL_STOP_STOPPED | \
 			  SIGNAL_STOP_CONTINUED)
 
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+#define SIGNAL_HUGEPAGE_CRITICAL 0x00000080
+#define SIGNAL_HUGEPAGE_NOT_CRITICAL 0x00000100
+#define SIGNAL_CHP_SPECIAL 0x00000200
+#endif
+
 static inline void signal_set_stop_flags(struct signal_struct *sig,
 					 unsigned int flags)
 {
@@ -352,6 +358,12 @@ extern struct sigqueue *sigqueue_alloc(void);
 extern void sigqueue_free(struct sigqueue *);
 extern int send_sigqueue(struct sigqueue *, struct pid *, enum pid_type);
 extern int do_sigaction(int, struct k_sigaction *, struct k_sigaction *);
+
+static inline void clear_notify_signal(void)
+{
+	clear_thread_flag(TIF_NOTIFY_SIGNAL);
+	smp_mb__after_atomic();
+}
 
 static inline int restart_syscall(void)
 {

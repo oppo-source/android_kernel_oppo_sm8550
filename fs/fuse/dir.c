@@ -22,6 +22,7 @@
 #include <linux/security.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <trace/hooks/tmpfile.h>
 
 #include "../internal.h"
 
@@ -186,7 +187,7 @@ static bool backing_data_changed(struct fuse_inode *fi, struct dentry *entry,
 	int err;
 	bool ret = true;
 
-	if (!entry) {
+	if (!entry || !fi->backing_inode) {
 		ret = false;
 		goto put_backing_file;
 	}
@@ -568,6 +569,10 @@ int fuse_lookup_name(struct super_block *sb, u64 nodeid, const struct qstr *name
 			goto out_put_forget;
 		if (fuse_invalid_attr(&outarg->attr))
 			goto out_put_forget;
+		if (outarg->nodeid == FUSE_ROOT_ID && outarg->generation != 0) {
+			pr_warn_once("root generation should be zero\n");
+			outarg->generation = 0;
+		}
 
 		*inode = fuse_iget(sb, outarg->nodeid, outarg->generation,
 				   &outarg->attr, entry_attr_timeout(outarg),
@@ -907,6 +912,8 @@ static int create_new_entry(struct fuse_mount *fm, struct fuse_args *args,
 	struct fuse_forget_link *forget;
 	void *security_ctx = NULL;
 	u32 security_ctxlen;
+	int err_nlink = 0;
+	bool skip_splice = false;
 
 	if (fuse_is_bad(dir))
 		return -EIO;
@@ -922,16 +929,20 @@ static int create_new_entry(struct fuse_mount *fm, struct fuse_args *args,
 	args->out_args[0].value = &outarg;
 
 	if (fm->fc->init_security && args->opcode != FUSE_LINK) {
+		bool skip_ctxargset = false;
 		err = get_security_context(entry, mode, &security_ctx,
 					   &security_ctxlen);
 		if (err)
 			goto out_put_forget_req;
 
+		trace_android_vh_tmpfile_secctx(args, security_ctxlen,
+						security_ctx, &skip_ctxargset);
 		BUG_ON(args->in_numargs != 2);
-
-		args->in_numargs = 3;
-		args->in_args[2].size = security_ctxlen;
-		args->in_args[2].value = security_ctx;
+		if (!skip_ctxargset) {
+			args->in_numargs = 3;
+			args->in_args[2].size = security_ctxlen;
+			args->in_args[2].value = security_ctx;
+		}
 	}
 
 	err = fuse_simple_request(fm, args);
@@ -952,10 +963,17 @@ static int create_new_entry(struct fuse_mount *fm, struct fuse_args *args,
 		fuse_queue_forget(fm->fc, forget, outarg.nodeid, 1);
 		return -ENOMEM;
 	}
+	trace_android_vh_tmpfile_create_check_inode(args, inode, &err_nlink);
+	if (err_nlink) {
+		fuse_queue_forget(fm->fc, forget, outarg.nodeid, 1);
+		return err_nlink;
+	}
 	kfree(forget);
 
 	d_drop(entry);
-	d = d_splice_alias(inode, entry);
+	trace_android_rvh_tmpfile_create(args, &d, entry, inode, &skip_splice);
+	if (!skip_splice)
+		d = d_splice_alias(inode, entry);
 	if (IS_ERR(d))
 		return PTR_ERR(d);
 
@@ -1044,6 +1062,16 @@ static int fuse_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
 	args.in_args[1].size = entry->d_name.len + 1;
 	args.in_args[1].value = entry->d_name.name;
 	return create_new_entry(fm, &args, dir, entry, S_IFDIR);
+}
+
+static int fuse_tmpfile(struct user_namespace *mnt_userns, struct inode *dir,
+			struct dentry *entry, umode_t mode)
+{
+	int ret = -EOPNOTSUPP;
+
+	trace_android_rvh_tmpfile_handle_op(dir, entry, mode, &create_new_entry,
+					    &ret);
+	return ret;
 }
 
 static int fuse_symlink(struct user_namespace *mnt_userns, struct inode *dir,
@@ -2239,6 +2267,7 @@ static const struct inode_operations fuse_dir_inode_operations = {
 	.setattr	= fuse_setattr,
 	.create		= fuse_create,
 	.atomic_open	= fuse_atomic_open,
+	.tmpfile        = fuse_tmpfile,
 	.mknod		= fuse_mknod,
 	.permission	= fuse_permission,
 	.getattr	= fuse_getattr,

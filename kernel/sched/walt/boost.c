@@ -58,6 +58,19 @@ void walt_init_foreground_tg(struct task_group *tg)
 	wtg->sched_boost_enable[RESTRAINED_BOOST] = false;
 }
 
+void walt_init_camera_daemon_tg(struct task_group *tg)
+{
+	struct walt_task_group *wtg;
+
+	wtg = (struct walt_task_group *) tg->android_vendor_data1;
+
+	wtg->colocate = false;
+	wtg->sched_boost_enable[NO_BOOST] = false;
+	wtg->sched_boost_enable[FULL_THROTTLE_BOOST] = true;
+	wtg->sched_boost_enable[CONSERVATIVE_BOOST] = true;
+	wtg->sched_boost_enable[RESTRAINED_BOOST] = false;
+}
+
 /*
  * Scheduler boost type and boost policy might at first seem unrelated,
  * however, there exists a connection between them that will allow us
