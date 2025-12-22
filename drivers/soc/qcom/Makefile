@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
+CFLAGS_fsa4480-i2c.o += -I$(srctree)/drivers/usb/typec/tcpc/inc \
+			-I$(srctree)/../../vendor/oplus/kernel/charger/v2/include
 CFLAGS_rpmh-rsc.o := -I$(src)
 obj-$(CONFIG_QCOM_AOSS_QMP) +=	qcom_aoss.o
 obj-$(CONFIG_QCOM_GENI_SE) +=	qcom-geni-se.o
@@ -108,7 +110,7 @@ obj-$(CONFIG_MSM_TZ_SMMU) += msm_tz_smmu.o
 obj-$(CONFIG_MSM_SPCOM) += spcom.o
 obj-$(CONFIG_MSM_PERFORMANCE) += msm_performance.o
 obj-$(CONFIG_QCOM_MINIDUMP) += minidump.o
-minidump-y   += msm_minidump.o minidump_log.o
+minidump-y   += msm_minidump.o minidump_log.o md_stacktrace.o
 minidump-$(CONFIG_QCOM_MINIDUMP_RM) += minidump_rm.o
 minidump-$(CONFIG_QCOM_MINIDUMP_SMEM) += minidump_smem.o
 minidump-$(CONFIG_QCOM_MINIDUMP_MMIO) += minidump_mmio.o

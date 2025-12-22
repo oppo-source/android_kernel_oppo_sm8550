@@ -43,6 +43,13 @@
 #endif
 #include <uapi/misc/adsp_sleepmon.h>
 
+#define OPLUS_ARCH_EXTENDS  1
+#ifdef OPLUS_ARCH_EXTENDS
+#include <linux/timekeeping.h>
+#include <linux/qcom-dload-mode.h>
+#include <linux/qcom_scm.h>
+#endif
+
 #define ADSPSLEEPMON_SMEM_ADSP_PID                              2
 #define ADSPSLEEPMON_SLEEPSTATS_ADSP_SMEM_ID                    606
 #define ADSPSLEEPMON_SLEEPSTATS_ADSP_LPI_SMEM_ID                613
@@ -313,6 +320,36 @@ struct adspsleepmon {
 #endif
 };
 
+#ifdef OPLUS_ARCH_EXTENDS
+
+//If trigger the adsp reboot, we should wait for 24 hours
+#define  TRIGGER_SSR_LIMIT_TIME     86400
+//should keep on 15 minutes, then trigger sleep issue
+#define  TRIGGER_SSR_KEEP_TIME      900
+
+static long  long last_trigger_time = 0;
+static long  long first_check_time = 0;
+static long  retry_times = 0;
+static int   oplus_adsp_daemon_enable = 0;
+
+struct timeval {
+	long long tv_sec;
+	long tv_usec;
+};
+
+static void do_gettimeofday(struct timeval *tv)
+{
+	struct timespec64 now;
+
+	ktime_get_real_ts64(&now);
+	tv->tv_sec = now.tv_sec;
+	tv->tv_usec = now.tv_nsec/1000;
+}
+
+/* Add for adsp ssr */
+//extern bool oplus_daemon_adsp_ssr(void);
+#endif
+
 static struct adspsleepmon g_adspsleepmon;
 static void adspsleepmon_timer_cb(struct timer_list *unused);
 static DEFINE_TIMER(adspsleep_timer, adspsleepmon_timer_cb);
@@ -381,6 +418,45 @@ static int sleepmon_send_ssr_command(void)
 
 	return result;
 }
+
+#ifdef OPLUS_ARCH_EXTENDS
+//function triggering adsp reset
+static void oplus_lpm_adsp_panic()
+{
+	struct timeval tv;
+	long long current_time = 0, period_time = 0;
+	long long delta_time = 0;
+	int dump_mode = 0;
+
+	//If adsp not slepp, every 4h to trigger adsp restart
+	do_gettimeofday(&tv);
+	current_time = tv.tv_sec;
+
+	period_time = current_time - last_trigger_time;
+	dump_mode = get_dump_mode();
+
+	if (dump_mode != QCOM_DOWNLOAD_FULLDUMP) {
+
+		if(!retry_times){
+			first_check_time = current_time;
+			delta_time = 0;
+		} else {
+			delta_time = current_time - first_check_time;
+		}
+
+		retry_times ++;
+
+		if ((retry_times > 20) && (delta_time > TRIGGER_SSR_KEEP_TIME) && (period_time > TRIGGER_SSR_LIMIT_TIME)) {
+			pr_err("Sending panic command to ADSP for LPM violation\n");
+			sleepmon_send_ssr_command();
+			//oplus_daemon_adsp_ssr();
+			last_trigger_time = current_time;
+			retry_times = 0;
+			delta_time = 0;
+		}
+	}
+}
+#endif
 
 static int sleepmon_send_lpi_issue_command(void)
 {
@@ -1050,6 +1126,7 @@ static void sleepmon_lpm_exception_check(u64 curr_timestamp, u64 elapsed_time)
 			pr_err("ADSP clock: %u, sleep latency: %u\n",
 					sysmon_event_stats.core_clk,
 					sysmon_event_stats.sleep_latency);
+
 			pr_err("Monitored duration (msec):%u,Sleep duration(msec): %u\n",
 				(elapsed_time /
 				ADSPSLEEPMON_SYS_CLK_TICKS_PER_MILLISEC),
@@ -1080,13 +1157,24 @@ static void sleepmon_lpm_exception_check(u64 curr_timestamp, u64 elapsed_time)
 					g_adspsleepmon.accumulated_resumes = 0;
 				}
 			}
+			#ifdef OPLUS_ARCH_EXTENDS
+			if (is_audio_active && oplus_adsp_daemon_enable)
+				oplus_lpm_adsp_panic();
+			#endif
 		} else {
+			#ifdef OPLUS_ARCH_EXTENDS
+			retry_times = 0;
+			#endif
 			g_adspsleepmon.accumulated_duration = 0;
 			g_adspsleepmon.accumulated_resumes = 0;
 		}
 
 	}
-
+	#ifdef OPLUS_ARCH_EXTENDS
+	else {
+		retry_times = 0;
+	}
+	#endif
 	memcpy(&g_adspsleepmon.backup_lpm_stats,
 		&curr_lpm_stats,
 		sizeof(struct sleep_stats));
@@ -1489,6 +1577,9 @@ static long adspsleepmon_device_ioctl(struct file *file,
 			fl->num_lpi_sessions++;
 		case ADSPSLEEPMON_AUDIO_ACTIVITY_START:
 			fl->num_sessions++;
+			#ifdef OPLUS_ARCH_EXTENDS
+			retry_times = 0;
+			#endif
 		break;
 
 		case ADSPSLEEPMON_AUDIO_ACTIVITY_LPI_STOP:
@@ -1501,6 +1592,9 @@ static long adspsleepmon_device_ioctl(struct file *file,
 				fl->num_sessions--;
 			else
 				pr_info("Received AUDIO activity stop when none active!\n");
+			#ifdef OPLUS_ARCH_EXTENDS
+			retry_times = 0;
+			#endif
 		break;
 
 		case ADSPSLEEPMON_AUDIO_ACTIVITY_RESET:
@@ -1636,6 +1730,11 @@ static int sleepmon_rpmsg_probe(struct rpmsg_device *dev)
 				g_adspsleepmon.adsp_rproc, false);
 	}
 #endif
+	#ifdef OPLUS_ARCH_EXTENDS
+	oplus_adsp_daemon_enable = of_property_read_bool(dev->dev.of_node,
+			"is_enable_sleep_daemon");
+	pr_info("adsp daemon enable  = %d\n",oplus_adsp_daemon_enable);
+	#endif
 
 	return adspsleepmon_smem_init();
 }

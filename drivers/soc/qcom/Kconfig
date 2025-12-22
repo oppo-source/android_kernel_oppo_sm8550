@@ -405,6 +405,16 @@ config QCOM_SMSM
 	  Say yes here to support the Qualcomm Shared Memory State Machine.
 	  The state machine is represented by bits in shared memory.
 
+config QCOM_MINIDUMP_PANIC_KTASK_STACK
+	bool "QCOM Minidump Panic dumps Kernel Task Stack"
+	depends on QCOM_MINIDUMP_PANIC_DUMP && DETECT_HUNG_TASK
+	default y
+	help
+	  This enables kernel task call stack dump in minidump
+	  table, on panic. Only the kernel tasks that in
+	  TASK_UNINTERRUPTIBLE (D) state will be dumped, also
+	  the time it stuck will be printed.
+
 config QCOM_MICRODUMP
 	tristate "Qualcomm Technologies, Inc. Microdump Support"
 	depends on QCOM_RAMDUMP
@@ -649,6 +659,12 @@ config QCOM_SOC_SLEEP_STATS
 	  various SoC level low power modes statistics and export to debugfs
 	  interface.
 
+config OPLUS_POWERINFO_RPMH
+	bool "powerinfo rpmh config"
+	default n
+	help
+	  Select this config to enable powerinfo rpmh
+
 config QTI_RPM_STATS_LOG
 	tristate "Qualcomm Technologies, Inc. (QTI) RPM Stats Driver"
 	help
@@ -759,7 +775,7 @@ config QCOM_WATCHDOG_BARK_TIME
 	depends on QCOM_WDT_CORE
 	int "Qualcomm Technologies, Inc. Watchdog bark time in ms"
 	default 11000
-	range 11000 11000
+	range 11000 22000
 	help
 	  The amount of time, in milliseconds, that should elapse after
 	  a watchdog timer reset before a bark interrupt is sent from the

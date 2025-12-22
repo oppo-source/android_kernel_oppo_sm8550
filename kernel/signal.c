@@ -59,6 +59,7 @@
 
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/signal.h>
+#include <trace/hooks/dtask.h>
 /*
  * SLAB caches for signal bits.
  */
@@ -994,6 +995,7 @@ static void complete_signal(int sig, struct task_struct *p, enum pid_type type)
 {
 	struct signal_struct *signal = p->signal;
 	struct task_struct *t;
+	bool wake;
 
 	/*
 	 * Now find a thread we can wake up to take the signal off the queue.
@@ -1053,7 +1055,10 @@ static void complete_signal(int sig, struct task_struct *p, enum pid_type type)
 				trace_android_vh_exit_signal(t);
 				task_clear_jobctl_pending(t, JOBCTL_PENDING_MASK);
 				sigaddset(&t->pending.signal, SIGKILL);
-				signal_wake_up(t, 1);
+				wake = true;
+				trace_android_vh_exit_signal_whether_wake(t, &wake);
+				if (wake)
+					signal_wake_up(t, 1);
 			} while_each_thread(p, t);
 			return;
 		}
@@ -2581,6 +2586,14 @@ static void do_freezer_trap(void)
 	spin_unlock_irq(&current->sighand->siglock);
 	cgroup_enter_frozen();
 	freezable_schedule();
+
+	/*
+	 * We could've been woken by task_work, run it to clear
+	 * TIF_NOTIFY_SIGNAL. The caller will retry if necessary.
+	 */
+	clear_notify_signal();
+	if (unlikely(READ_ONCE(current->task_works)))
+		task_work_run();
 }
 
 static int ptrace_signal(int signr, kernel_siginfo_t *info)

@@ -336,7 +336,7 @@ static int wait_for_pll(struct clk_alpha_pll *pll, u32 mask, bool inverse,
 
 	pr_err("PLL lock bit detection total wait time: %lld ns\n", time);
 
-	WARN_CLK(&pll->clkr.hw, 1, "%s failed to %s!\n", action);
+	WARN_CLK(&pll->clkr.hw, 1, "failed to %s!\n", action);
 	return -ETIMEDOUT;
 }
 

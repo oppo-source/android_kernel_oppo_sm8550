@@ -10,6 +10,12 @@ config QCOM_GDSC
 config QCOM_RPMCC
 	bool
 
+config OPLUS_POWERINFO_STANDBY_DEBUG
+	bool "powerinfo standby config"
+	default n
+	help
+	  Select this config to enable powerinfo standby debug
+
 menuconfig COMMON_CLK_QCOM
 	tristate "Support for Qualcomm's clock controllers"
 	depends on OF
@@ -135,6 +141,7 @@ config IPQ_APSS_6018
 	tristate "IPQ APSS Clock Controller"
 	select IPQ_APSS_PLL
 	depends on QCOM_APCS_IPC || COMPILE_TEST
+	depends on QCOM_SMEM
 	help
 	  Support for APSS clock controller on IPQ platforms. The
 	  APSS clock controller manages the Mux and enable block that feeds the

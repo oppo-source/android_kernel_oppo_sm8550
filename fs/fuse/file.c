@@ -19,6 +19,7 @@
 #include <linux/falloc.h>
 #include <linux/uio.h>
 #include <linux/fs.h>
+#include <trace/hooks/tmpfile.h>
 
 static int fuse_send_open(struct fuse_mount *fm, u64 nodeid,
 			  unsigned int open_flags, int opcode,
@@ -29,6 +30,7 @@ static int fuse_send_open(struct fuse_mount *fm, u64 nodeid,
 
 	memset(&inarg, 0, sizeof(inarg));
 	inarg.flags = open_flags & ~(O_CREAT | O_EXCL | O_NOCTTY);
+	trace_android_vh_tmpfile_send_open(&inarg.flags);
 	if (!fm->fc->atomic_o_trunc)
 		inarg.flags &= ~O_TRUNC;
 
@@ -1021,6 +1023,16 @@ static void fuse_readahead(struct readahead_control *rac)
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	unsigned int i, max_pages, nr_pages = 0;
 
+#ifdef CONFIG_FUSE_BPF
+	/*
+	 * Currently no meaningful readahead is possible with fuse-bpf within
+	 * the kernel, so unless the daemon is aware of this file, ignore this
+	 * call.
+	 */
+	if (!get_fuse_inode(inode)->nodeid)
+		return;
+#endif
+
 	if (fuse_is_bad(inode))
 		return;
 
@@ -1782,10 +1794,16 @@ __acquires(fi->lock)
 	fuse_writepage_finish(fm, wpa);
 	spin_unlock(&fi->lock);
 
-	/* After fuse_writepage_finish() aux request list is private */
+	/* After rb_erase() aux request list is private */
 	for (aux = wpa->next; aux; aux = next) {
+		struct backing_dev_info *bdi = inode_to_bdi(aux->inode);
+
 		next = aux->next;
 		aux->next = NULL;
+
+		dec_wb_stat(&bdi->wb, WB_WRITEBACK);
+		dec_node_page_state(aux->ia.ap.pages[0], NR_WRITEBACK_TEMP);
+		wb_writeout_inc(&bdi->wb);
 		fuse_writepage_free(aux);
 	}
 

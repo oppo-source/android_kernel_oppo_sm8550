@@ -624,10 +624,6 @@ struct sched_dl_entity {
 	 * task has to wait for a replenishment to be performed at the
 	 * next firing of dl_timer.
 	 *
-	 * @dl_boosted tells if we are boosted due to DI. If so we are
-	 * outside bandwidth enforcement mechanism (but only until we
-	 * exit the critical section);
-	 *
 	 * @dl_yielded tells if task gave up the CPU before consuming
 	 * all its available runtime during the last job.
 	 *
@@ -1976,10 +1972,16 @@ static inline void kick_process(struct task_struct *tsk) { }
 #endif
 
 extern void __set_task_comm(struct task_struct *tsk, const char *from, bool exec);
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+extern void update_task_hugepage_critical_flag(struct task_struct *tsk);
+#endif
 
 static inline void set_task_comm(struct task_struct *tsk, const char *from)
 {
 	__set_task_comm(tsk, from, false);
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+	update_task_hugepage_critical_flag(tsk);
+#endif
 }
 
 extern char *__get_task_comm(char *to, size_t len, struct task_struct *tsk);

@@ -1019,7 +1019,11 @@ out_free_interp:
 				 executable_stack);
 	if (retval < 0)
 		goto out_free_dentry;
-	
+
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+       handle_chp_load_elf_binary(bprm->filename);
+#endif
+
 	elf_bss = 0;
 	elf_brk = 0;
 
@@ -1115,6 +1119,12 @@ out_free_interp:
 				if (current->flags & PF_RANDOMIZE)
 					load_bias += arch_mmap_rnd();
 				alignment = maximum_alignment(elf_phdata, elf_ex->e_phnum);
+#ifdef CONFIG_CONT_PTE_HUGEPAGE
+				/*
+				 * make code section aligned with 64KB for dynamic hugepage
+				 */
+				alignment = max(alignment, CONT_PTE_SIZE);
+#endif
 				if (alignment)
 					load_bias &= ~(alignment - 1);
 				elf_flags |= MAP_FIXED;
